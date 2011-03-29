@@ -1,0 +1,26 @@
+name:           Asset Mover
+id:             assetmover
+key:            assetmover
+description:    'Move assets to a new folder.'
+author_name:    'Endevver, LLC'
+author_link:    http://endevver.com
+version:        1.0
+
+callbacks:
+    MT::App::CMS::template_source.list_asset: $AssetMover::AssetMover::Plugin::messaging_source
+    MT::App::CMS::template_param.list_asset: $AssetMover::AssetMover::Plugin::messaging_param
+
+list_actions:
+    asset:
+        move_assets:
+            label: 'Move Assets'
+            code: $AssetMover::AssetMover::Plugin::action
+            # can_edit_assets might be adequate permissions to get at this 
+            # option, however if assets are moved then the site might need 
+            # republishing and that requires different permissions. So, better 
+            # to just keep this feature restricted to a user who will 
+            # definitely be able to keep the site rolling.
+            permission: blog_administrator
+            condition: $AssetMover::AssetMover::Plugin::condition
+            input: 1
+            input_label: 'Specify a folder relative to the blog site path/URL to move the selected asset(s) to. Examples: enter a single folder ("assets/"), enter a subdirectory path ("my/asset/location/"), or move assets to the blog root with "/".'
