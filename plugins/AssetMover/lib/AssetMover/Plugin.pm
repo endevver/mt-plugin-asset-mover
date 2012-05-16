@@ -3,34 +3,34 @@ package AssetMover::Plugin;
 use warnings;
 use strict;
 
+use File::Spec;
+use MT::FileMgr;
 use MT::Util qw( dirify );
 
 # The user has selected some assets on the Manage Assets screen and chosen to 
 # move them.
 sub action {
-    my ($app) = @_;
-    $app->validate_magic or return;
-    my $q = $app->query;
+    my ($app)     = @_;
+    my $q         = $app->query;
+    my @asset_ids = $q->param('id');
+    my $folder    = $q->param('itemset_action_input') || '';  # '' = blog root
 
-    # Grab the folder name the user entered. Ensure that it's a valid folder 
-    # name and that the location is writable. Fall back to no folder (''), 
-    # which is the blog root -- a valid location to place an asset.
-    my $folder = $q->param('itemset_action_input') || '';
+    $app->validate_magic or return;
 
     # If the user has specified a folder structure, such as 'my/asset/folder',
     # we want to be sure to retain that. Dirify each part of the folder 
     # structure, then turn it back into a path.
-    my @folders = split('/', $folder);
-    map { $_ = dirify($_) } @folders;
+    my @folders = map { dirify($_) } split('/', $folder);
 
     # This flag is used to return a message to the user about the success of 
     # the asset move. If no assets were moved because they are missing or 
     # non-file assets we want to report it to them.
     my $moved_flag;
 
-    my @asset_ids = $q->param('id');
-    foreach my $asset_id (@asset_ids) {
-        my $asset = MT->model('asset')->load($asset_id)
+    my $blog_class  = MT->model('blog');
+    my $asset_class = MT->model('asset');
+    foreach my $asset_id ( @asset_ids ) {
+        my $asset = $asset_class->load( $asset_id )
             or next;
 
         # If the asset doesn't have a file_path, just move on. Assets don't 
@@ -38,10 +38,22 @@ sub action {
         # file can't be found then we don't need to try to move it!
         next unless $asset->file_path && -e $asset->file_path;
 
-        my $blog = MT->model('blog')->load($asset->blog_id);
-        my $fmgr = $blog->file_mgr;
-        
-        my $dest_path = File::Spec->catdir($blog->site_path, @folders);
+        my ( $blog, $fmgr, $site_path );
+
+        if ( $asset->blog_id ) {
+            $blog        = $blog_class->load($asset->blog_id);
+            $fmgr        = $blog->file_mgr;
+            $site_path   = $blog->site_path;
+        }
+        else {
+            warn "STATIC FILE PATH: ".$app->static_file_path;
+            $fmgr      = MT::FileMgr->new('Local');
+            $site_path = File::Spec->catdir( 
+                $app->static_file_path, 'support', 'uploads'
+            );
+        }
+
+        my $dest_path = File::Spec->catdir($site_path, @folders);
 
         # Check if the destination exists, and create it if necessary.
         if ( !$fmgr->exists($dest_path) ) {
@@ -75,7 +87,7 @@ sub action {
     # All valid selected assets were successfully moved. Use a transformer
     # callback to add this message.
     $moved_flag 
-        ? $app->add_return_arg( assets_moved => 1 )
+        ? $app->add_return_arg( assets_moved     => 1 )
         : $app->add_return_arg( assets_not_moved => 1 );
 
     $app->call_return;
@@ -126,3 +138,24 @@ sub condition {
 }
 
 1;
+
+__END__
+
+=head1 NAME
+
+AssetMover::Plugin
+
+=head1 DESCRIPTION
+
+=head1 METHODS
+
+=head2 action
+
+The method is the C<move_assets> C<list_action> handler which is accessible
+from the asset listing screen.
+
+=head2 messaging_source
+
+=head2 messaging_param
+
+=head2 condition

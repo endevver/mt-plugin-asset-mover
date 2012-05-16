@@ -21,6 +21,6 @@ list_actions:
             # to just keep this feature restricted to a user who will 
             # definitely be able to keep the site rolling.
             permission: blog_administrator
-            condition: $AssetMover::AssetMover::Plugin::condition
+            # condition: $AssetMover::AssetMover::Plugin::condition
             input: 1
             input_label: 'Specify a folder relative to the blog site path/URL to move the selected asset(s) to. Examples: enter a single folder ("assets/"), enter a subdirectory path ("my/asset/location/"), or move assets to the blog root with "/".'
