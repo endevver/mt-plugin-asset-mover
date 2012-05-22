@@ -6,90 +6,43 @@ use strict;
 use File::Spec;
 use MT::FileMgr;
 use MT::Util qw( dirify );
+use AssetMover;
 
-# The user has selected some assets on the Manage Assets screen and chosen to 
-# move them.
+# The user has selected some assets on the Manage Assets screen
+# and chosen to move them.
 sub action {
-    my ($app)     = @_;
-    my $q         = $app->query;
-    my @asset_ids = $q->param('id');
-    my $folder    = $q->param('itemset_action_input') || '';  # '' = blog root
+    my ($app)       = @_;
+    my $q           = $app->query;
+    my @asset_ids   = $q->param('id');
+    my $folder      = $q->param('itemset_action_input') || '';  # '' = blog root
+    my $asset_class = MT->model('asset');
 
     $app->validate_magic or return;
 
-    # If the user has specified a folder structure, such as 'my/asset/folder',
-    # we want to be sure to retain that. Dirify each part of the folder 
-    # structure, then turn it back into a path.
-    my @folders = map { dirify($_) } split('/', $folder);
+    my $moved_cnt = my $failed_cnt = 0;
 
-    # This flag is used to return a message to the user about the success of 
-    # the asset move. If no assets were moved because they are missing or 
-    # non-file assets we want to report it to them.
-    my $moved_flag;
-
-    my $blog_class  = MT->model('blog');
-    my $asset_class = MT->model('asset');
     foreach my $asset_id ( @asset_ids ) {
-        my $asset = $asset_class->load( $asset_id )
-            or next;
 
-        # If the asset doesn't have a file_path, just move on. Assets don't 
-        # need to be files. Also check that the asset actually exists. If the 
-        # file can't be found then we don't need to try to move it!
-        next unless $asset->file_path && -e $asset->file_path;
+        my $asset = $asset_class->load( $asset_id ) or next;
 
-        my ( $blog, $fmgr, $site_path );
-
-        if ( $asset->blog_id ) {
-            $blog        = $blog_class->load($asset->blog_id);
-            $fmgr        = $blog->file_mgr;
-            $site_path   = $blog->site_path;
+        if ( $asset->relocate( $folder ) ) {
+            $moved_cnt++;
         }
-        else {
-            warn "STATIC FILE PATH: ".$app->static_file_path;
-            $fmgr      = MT::FileMgr->new('Local');
-            $site_path = File::Spec->catdir( 
-                $app->static_file_path, 'support', 'uploads'
-            );
+        else{
+            $app->log({
+                message => $app->translate( 'AssetMover error: [_1]', 
+                                            $asset->errstr || 'Unknown error'),
+                level    => MT::Log::ERROR(),
+                class    => 'asset',
+                category => 'relocate',
+            });
+            $failed_cnt++;
         }
-
-        my $dest_path = File::Spec->catdir($site_path, @folders);
-
-        # Check if the destination exists, and create it if necessary.
-        if ( !$fmgr->exists($dest_path) ) {
-            $fmgr->mkpath($dest_path)
-                or die $fmgr->errstr;
-        }
-
-        # Now that the destination exists we can move the file there.
-        my $dest_file = File::Spec->catfile($dest_path, $asset->file_name);
-        $fmgr->rename($asset->file_path, $dest_file)
-            or die $fmgr->errstr;
-
-        # Set the asset file_path to a relative ('%r') location.
-        $asset->file_path(
-            File::Spec->catfile('%r', @folders, $asset->file_name)
-        );
-
-        # Set the asset URL to a relative location.
-        $asset->url(
-            join('/', '%r', @folders) . '/' . $asset->file_name
-        );
-
-        $asset->save or die $asset->errstr;
-
-        # Now that the asset has been successfully moved, mark $moved_flag as 
-        # true. This will be used to display the correct notification on the 
-        # Manage Assets screen about the move's success.
-        $moved_flag = 1;
     }
 
-    # All valid selected assets were successfully moved. Use a transformer
-    # callback to add this message.
-    $moved_flag 
-        ? $app->add_return_arg( assets_moved     => 1 )
-        : $app->add_return_arg( assets_not_moved => 1 );
-
+    $app->add_return_arg( assets_failed => $failed_cnt ) if $failed_cnt;
+    $app->add_return_arg( assets_moved  =>
+                            $moved_cnt == @asset_ids ? 'All' : $moved_cnt );
     $app->call_return;
 }
 
@@ -103,19 +56,17 @@ sub messaging_source {
     $new = <<HTML;
 <mt:setvarblock name="system_msg">
     <mt:if name="assets_moved">
-        <mtapp:statusmsg
-            id="assets_moved"
-            class="success">
-            The selected asset(s) have been successfully moved. Be sure to 
-            republish and double-check for any existing use of the old URL!
+        <mtapp:statusmsg id="assets_moved" class="success">
+            <mt:var name="assets_moved"> of the selected asset(s) were
+            successfully moved. Be sure to republish the blog and
+            double-check for any existing use of the old URL!
         </mtapp:statusmsg>
     </mt:if>
-    <mt:if name="assets_not_moved">
-        <mtapp:statusmsg
-            id="assets_not_moved"
-            class="success">
-            The selected asset(s) have <em>not</em> been successfully moved. 
-            The selected asset(s) are not file-based or are missing.
+    <mt:if name="assets_failed">
+        <mtapp:statusmsg id="assets_failed" class="error">
+            <mt:var name="assets_failed"> of the selected asset(s) were
+            <em>not</em> successfully moved. Please see the activity log
+            for any error messages encountered in the process.
         </mtapp:statusmsg>
     </mt:if>
 HTML
@@ -127,15 +78,15 @@ sub messaging_param {
     my ($cb, $app, $param, $tmpl) = @_;
     my $q = $app->query;
 
-    $param->{assets_moved} = $q->param('assets_moved') || '';
-    $param->{assets_not_moved} = $q->param('assets_not_moved') || '';
+    $param->{assets_moved}     = $q->param('assets_moved')  || 0;
+    $param->{assets_not_moved} = $q->param('assets_failed') || 0;
 }
 
-# Display the Move Assets list action at the blog level only.
-sub condition {
-    return 1 if MT->instance->blog;
-    return 0;
-}
+# # Display the Move Assets list action at the blog level only.
+# sub condition {
+#     return 1 if MT->instance->blog;
+#     return 0;
+# }
 
 1;
 
@@ -156,6 +107,14 @@ from the asset listing screen.
 
 =head2 messaging_source
 
+A application template source callback through which the plugin adds its
+success/error message conditionals to the application template
+
 =head2 messaging_param
 
-=head2 condition
+A application template param callback through which the plugin populates the
+parameters needed to display the appropriate success and/or error message.
+
+=cut
+
+# =head2 condition

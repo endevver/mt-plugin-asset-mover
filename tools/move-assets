@@ -1,0 +1,23 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+
+BEGIN {
+    die "Please set MT_HOME environment variable"
+        unless $ENV{MT_HOME};
+}
+use MT;
+
+my $mt = MT->new(Config => "$ENV{MT_HOME}/mt-config.cgi") or die MT->errstr;
+
+my $iter = MT::Asset->load_iter()
+    or die "Load failed: " . MT::Asset->errstr;
+while ( my $asset = $iter->() ) {
+
+    # 1. If asset has an object asset record
+    # 2. Get relative path beneath blog
+    # 3. Add 'protected/' in front of that relative path
+    # use AssetMover
+    # Call asset->relocate with new protected path
+}
