@@ -1,10 +1,11 @@
-name:           Asset Mover
-id:             assetmover
-key:            assetmover
-description:    'Move assets to a new folder.'
-author_name:    'Endevver, LLC'
-author_link:    http://endevver.com
-version:        1.0
+name:        Asset Mover
+id:          assetmover
+key:         assetmover
+description: 'Move assets to a new folder.'
+author_name: 'Dan Wolfgang, Endevver, LLC'
+author_link: http://endevver.com
+plugin_link: https://github.com/endevver/mt-plugin-asset-mover
+version:     1.0
 
 callbacks:
     MT::App::CMS::template_source.list_asset: $AssetMover::AssetMover::Plugin::messaging_source
